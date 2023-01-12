@@ -146,8 +146,8 @@ set(LLVM_DISTRIBUTION_COMPONENTS
     CACHE STRING ""
 )
 set(LLVM_ENABLE_PROJECTS clang;lld CACHE STRING "")
-set(LLVM_TARGETS_TO_BUILD AArch64;ARM CACHE STRING "")
-set(LLVM_DEFAULT_TARGET_TRIPLE aarch64-linux-gnu CACHE STRING "")
+set(LLVM_TARGETS_TO_BUILD RISCV CACHE STRING "")
+set(LLVM_DEFAULT_TARGET_TRIPLE riscv32-unknown-elf CACHE STRING "")
 set(CLANG_DEFAULT_LINKER lld CACHE STRING "")
 
 # Default to a release build
@@ -405,20 +405,11 @@ endfunction()
 
 # Define which library variants to build and which flags to use.
 # The order is <arch> <name suffix> <flags>
-add_library_variants(aarch64-none-elf picolibc
-    aarch64         ""                  "-march=armv8-a"
-)
-add_library_variants(arm-none-eabi picolibc
-    armv6m          soft_nofp           "-mfloat-abi=soft -march=armv6m"
-    armv7em         hard_fpv4_sp_d16    "-mfloat-abi=hard -march=armv7em -mfpu=fpv4-sp-d16"
-    armv7em         hard_fpv5_d16       "-mfloat-abi=hard -march=armv7em -mfpu=fpv5-d16"
-    armv7em         soft_nofp           "-mfloat-abi=soft -march=armv7em -mfpu=none"
-    armv7m          soft_nofp           "-mfloat-abi=soft -march=armv7m+nofp"
-    armv8m.main     hard_fp             "-mfloat-abi=hard -march=armv8m.main+fp"
-    armv8m.main     soft_nofp           "-mfloat-abi=soft -march=armv8m.main+nofp"
-    armv8.1m.main   hard_fp             "-mfloat-abi=hard -march=armv8.1m.main+fp"
-    armv8.1m.main   hard_nofp_mve       "-mfloat-abi=hard -march=armv8.1m.main+nofp+mve"
-    armv8.1m.main   soft_nofp_nomve     "-mfloat-abi=soft -march=armv8.1m.main+nofp+nomve"
+#add_library_variants(aarch64-none-elf picolibc
+#aarch64         ""                  "-march=armv8-a"
+#)
+add_library_variants(riscv32-none-eabi picolibc
+    riscv32         ""           "-mabi=ilp32 -march=rv32imac"
 )
 
 
@@ -427,13 +418,8 @@ set(library_variants_copy "${library_variants}")
 while(library_variants_copy)
     list(POP_FRONT library_variants_copy parent_dir_name libc_type target_arch variant flags)
 
-    if(target_arch STREQUAL "aarch64")
-        set(target "aarch64-none-elf")
-        set(cpu_family aarch64)
-    else()
-        set(target "${target_arch}-none-eabi")
-        set(cpu_family arm)
-    endif()
+        set(target  "riscv32-unkown-elf")
+        set(cpu_family riscv)
     set(variant_directory "${parent_dir_name}/${variant}")
     set(install_directory "${LLVM_BINARY_DIR}/lib/clang-runtimes/${variant_directory}")
     set(common_flags "--target=${target} ${flags}")
@@ -787,7 +773,7 @@ endforeach()
 # Samples
 # Don't run the baremetal-uart sample because it never terminates.
 foreach(test
-    baremetal-semihosting-aarch64
+    baremetal-semihosting-riscv32
     baremetal-semihosting
     cpp-baremetal-semihosting
 )
