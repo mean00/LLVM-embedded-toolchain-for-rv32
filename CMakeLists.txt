@@ -127,6 +127,7 @@ set(LLVM_DISTRIBUTION_COMPONENTS
     clang
     dsymutil
     lld
+    lldb
     llvm-ar
     llvm-config
     llvm-cov
@@ -145,7 +146,7 @@ set(LLVM_DISTRIBUTION_COMPONENTS
     LTO
     CACHE STRING ""
 )
-set(LLVM_ENABLE_PROJECTS clang;lld CACHE STRING "")
+set(LLVM_ENABLE_PROJECTS clang;lld;lldb CACHE STRING "")
 set(LLVM_TARGETS_TO_BUILD RISCV CACHE STRING "")
 set(LLVM_DEFAULT_TARGET_TRIPLE riscv32-unknown-elf CACHE STRING "")
 set(CLANG_DEFAULT_LINKER lld CACHE STRING "")
@@ -254,9 +255,9 @@ set(LLVM_VERSION_PATCH ${CMAKE_MATCH_1})
 
 
 project(
-    LLVMEmbeddedToolchainForArm
+    LLVMEmbeddedToolchainForRv32
     VERSION ${LLVM_VERSION_MAJOR}.${LLVM_VERSION_MINOR}.${LLVM_VERSION_PATCH}
-    DESCRIPTION "LLVM Embedded Toolchain for Arm"
+    DESCRIPTION "LLVM Embedded Toolchain for rv32"
     HOMEPAGE_URL "https://github.com/ARM-software/LLVM-embedded-toolchain-for-Arm"
 )
 
