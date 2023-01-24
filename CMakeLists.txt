@@ -410,7 +410,9 @@ endfunction()
 #aarch64         ""                  "-march=armv8-a"
 #)
 add_library_variants(riscv32-none-eabi picolibc
-    riscv32         ""           "-mabi=ilp32 -march=rv32imac"
+    #riscv32         "soft"           "-mabi=ilp32 -march=rv32imac"
+    riscv32         soft_nofp           "-mabi=ilp32 -march=rv32imac"
+    riscv32         hard_fp             "-mabi=ilp32f -march=rv32imafc"
 )
 
 
@@ -486,7 +488,7 @@ while(library_variants_copy)
 
     # compiler-rt
 
-    set(runtimes_flags "${common_flags} -ffunction-sections -fdata-sections -fno-ident --sysroot ${install_directory}")
+    set(runtimes_flags "${common_flags} -ffunction-sections -fdata-sections -fno-ident --sysroot ${install_directory} -I${install_directory}/include   -L${install_directory}/lib  ")
 
     ExternalProject_Add(
         compiler_rt_${variant}
