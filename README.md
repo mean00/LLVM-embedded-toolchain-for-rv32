@@ -1,11 +1,6 @@
 # LLVM Embedded Toolchain for RV32
 
 This is a modified  LLVM Embedded Toolchain for Arm to build LLVM for riscv32
-/!\ You have to create a symlink for some reasons /!\
-
-ln -s $PWD/build/_deps/llvmproject-src/llvm/lib lib
-
-then
 
 mkdir build && cd build && cmake  -G Ninja .. && ninja && ninja package-llvm-toolchain
 
