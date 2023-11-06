@@ -1,3 +1,11 @@
+# LLVM Embedded Toolchain for Riscv32
+
+This is a modified version of LLMVM Toolchain for Arm to build it for
+rv32 (imac and imafc)
+Use the usual :
+mkdir build && cd build && cmake .. && make -j 4 && make package-llvm-toolchain
+
+
 # LLVM Embedded Toolchain for Arm
 
 This repository contains build scripts and auxiliary material for building a
