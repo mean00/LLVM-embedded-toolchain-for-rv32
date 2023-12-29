@@ -135,7 +135,6 @@ set(LLVM_DISTRIBUTION_COMPONENTS
     clang
     dsymutil
     lld
-    lldb
     llvm-ar
     llvm-config
     llvm-cov
