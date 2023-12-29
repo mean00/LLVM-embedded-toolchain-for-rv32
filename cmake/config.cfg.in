@@ -1,5 +1,0 @@
-${common_flags}
--fno-exceptions
--fno-rtti
---sysroot <CFGDIR>/../lib/clang-runtimes/${variant_directory}
-<CFGDIR>/../lib/clang-runtimes/${variant_directory}/lib/${crt0}${extra_args}

@@ -115,12 +115,20 @@ option(
     LLVM_TOOLCHAIN_CROSS_BUILD_MINGW
     "Cross-build for Windows. Using this option implies that you accept the GCC & MinGW licenses."
 )
+option(
+    PREBUILT_TARGET_LIBRARIES
+    "Target libraries are prebuilt so no need to build them"
+)
+set(TARGET_LIBRARIES_DIR
+    "lib/clang-runtimes" CACHE STRING
+    "Directory containing the target libraries."
+)
 set(LLVM_TOOLCHAIN_LIBRARY_VARIANTS
     "" CACHE STRING
     "Build only the specified library variants. If not specified then build all variants."
 )
 
-set(BUG_REPORT_URL "https://github.com/ARM-software/LLVM-embedded-toolchain-for-Arm/issues" CACHE STRING "")
+set(BUG_REPORT_URL "--" CACHE STRING "")
 set(LLVM_DISTRIBUTION_COMPONENTS
     clang-format
     clang-resource-headers
@@ -146,9 +154,21 @@ set(LLVM_DISTRIBUTION_COMPONENTS
     LTO
     CACHE STRING ""
 )
-set(LLVM_ENABLE_PROJECTS clang;lld;lldb CACHE STRING "")
+set(LLVM_TOOLCHAIN_DISTRIBUTION_COMPONENTS
+    llvm-toolchain-config-files
+    llvm-toolchain-docs
+    llvm-toolchain-libs
+    llvm-toolchain-samples
+    llvm-toolchain-third-party-licenses
+    CACHE STRING "Components defined by this CMakeLists that should be
+installed by the install-llvm-toolchain target"
+)
+set(LLVM_ENABLE_PROJECTS clang;lld CACHE STRING "")
 set(LLVM_TARGETS_TO_BUILD RISCV CACHE STRING "")
 set(LLVM_DEFAULT_TARGET_TRIPLE riscv32-unknown-elf CACHE STRING "")
+set(LLVM_APPEND_VC_REV OFF CACHE BOOL "")
+set(LLVM_ENABLE_TERMINFO OFF CACHE BOOL "")
+set(LLVM_CCACHE_BUILD ON CACHE BOOL "")
 set(CLANG_DEFAULT_LINKER lld CACHE STRING "")
 
 # Default to a release build
@@ -158,16 +178,21 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE BOOL "" FORCE)
 endif()
 
-# If ccache is available then use it by default.
-find_program(CCACHE_EXECUTABLE ccache)
-if(CCACHE_EXECUTABLE)
-    set(LLVM_CCACHE_BUILD ON CACHE BOOL "")
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
+if(NOT CMAKE_C_COMPILER_LAUNCHER AND NOT CMAKE_CXX_COMPILER_LAUNCHER)
+    # If ccache is available then use it by default.
+    find_program(CCACHE_EXECUTABLE ccache)
+    if(CCACHE_EXECUTABLE)
+        set(CMAKE_C_COMPILER_LAUNCHER "${CCACHE_EXECUTABLE}" CACHE FILEPATH "" FORCE)
+        set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_EXECUTABLE}" CACHE FILEPATH "" FORCE)
+    endif()
 endif()
 
 # If lld is available then use it by default.
 find_program(LLD_EXECUTABLE lld)
 if(LLD_EXECUTABLE)
-    set(LLVM_ENABLE_LLD ON CACHE BOOL "")
+    set(LLVM_USE_LINKER lld CACHE STRING "")
 endif()
 
 # A lot of files get installed which makes the install messages too
@@ -197,11 +222,13 @@ function(read_repo_version output_variable_prefix repo)
     if(tagType STREQUAL "commithash")
         # GIT_SHALLOW doesn't work with commit hashes.
         set(shallow OFF)
-    elseif(tagType STREQUAL "tag" OR tagType STREQUAL "branch")
+    elseif(tagType STREQUAL "branch")
         set(shallow ON)
         # CMake docs recommend that "branch names and tags should
         # generally be specified as remote names"
         set(tag "origin/${tag}")
+    elseif(tagType STREQUAL "tag")
+        set(shallow ON)
     else()
         message(FATAL_ERROR "Unrecognised tagType ${tagType}")
     endif()
@@ -240,25 +267,26 @@ FetchContent_Declare(picolibc
 FetchContent_MakeAvailable(llvmproject)
 FetchContent_MakeAvailable(picolibc)
 
-
-# Grab the version out of LLVM sources
-file(
-    STRINGS ${llvmproject_SOURCE_DIR}/llvm/CMakeLists.txt version_strings
-    REGEX [[set\(LLVM_VERSION_[A-Z]+ [0-9]+\)]]
-)
-string(REGEX MATCH [[MAJOR ([0-9]+)]] unused "${version_strings}")
-set(LLVM_VERSION_MAJOR ${CMAKE_MATCH_1})
-string(REGEX MATCH [[MINOR ([0-9]+)]] unused "${version_strings}")
-set(LLVM_VERSION_MINOR ${CMAKE_MATCH_1})
-string(REGEX MATCH [[PATCH ([0-9]+)]] unused "${version_strings}")
-set(LLVM_VERSION_PATCH ${CMAKE_MATCH_1})
-
+function(get_llvm_version_numbers llvmproject_SOURCE_DIR)
+    # Grab the version out of LLVM sources
+    file(
+        STRINGS ${llvmproject_SOURCE_DIR}/llvm/CMakeLists.txt version_strings
+        REGEX [[set\(LLVM_VERSION_[A-Z]+ [0-9]+\)]]
+    )
+    string(REGEX MATCH [[MAJOR ([0-9]+)]] unused "${version_strings}")
+    set(LLVM_VERSION_MAJOR ${CMAKE_MATCH_1} PARENT_SCOPE)
+    string(REGEX MATCH [[MINOR ([0-9]+)]] unused "${version_strings}")
+    set(LLVM_VERSION_MINOR ${CMAKE_MATCH_1} PARENT_SCOPE)
+    string(REGEX MATCH [[PATCH ([0-9]+)]] unused "${version_strings}")
+    set(LLVM_VERSION_PATCH ${CMAKE_MATCH_1} PARENT_SCOPE)
+endfunction()
+get_llvm_version_numbers(${llvmproject_SOURCE_DIR})
 
 project(
-    LLVMEmbeddedToolchainForRv32
+        LLVMEmbeddedToolchainForRv32
     VERSION ${LLVM_VERSION_MAJOR}.${LLVM_VERSION_MINOR}.${LLVM_VERSION_PATCH}
-    DESCRIPTION "LLVM Embedded Toolchain for rv32"
-    HOMEPAGE_URL "https://github.com/ARM-software/LLVM-embedded-toolchain-for-Arm"
+    DESCRIPTION "LLVM Embedded Toolchain for Rv32"
+    HOMEPAGE_URL "--"
 )
 
 # We generally want to install to a local directory to see what the
@@ -277,30 +305,36 @@ endif()
 # These must be set before include(CPack) which the llvm CMakeLists.txt does.
 # Restrict which LLVM components are installed.
 if(LLVM_TOOLCHAIN_CROSS_BUILD_MINGW)
-    set(CPACK_COMPONENTS_ALL llvm-toolchain)
+    set(CPACK_COMPONENTS_ALL ${LLVM_TOOLCHAIN_DISTRIBUTION_COMPONENTS} llvm-toolchain-mingw)
 else()
-    set(CPACK_COMPONENTS_ALL ${LLVM_DISTRIBUTION_COMPONENTS} llvm-toolchain)
+    set(CPACK_COMPONENTS_ALL ${LLVM_TOOLCHAIN_DISTRIBUTION_COMPONENTS} ${LLVM_DISTRIBUTION_COMPONENTS})
 endif()
 # Enable limiting the installed components in TGZ and ZIP packages.
 set(CPACK_ARCHIVE_COMPONENT_INSTALL TRUE)
 # Don't create a separate archive for each component.
 set(CPACK_COMPONENTS_GROUPING ALL_COMPONENTS_IN_ONE)
-# Strip debug info from files before packaging them
-set(CPACK_STRIP_FILES TRUE)
 # When extracting the files put them in an ArmCompiler-.../ directory.
 set(CPACK_COMPONENT_INCLUDE_TOPLEVEL_DIRECTORY TRUE)
+# Compress package in parallel.
+set(CPACK_THREADS 0 CACHE STRING "")
 
-string(TOLOWER ${CMAKE_SYSTEM_PROCESSOR} processor_name)
-string(REGEX MATCH "amd64|x64|x86" x86_match ${processor_name})
-if(x86_match)
-    set(processor_name "x86_64")
+
+if(CMAKE_OSX_ARCHITECTURES)
+    # For universal binaries don't include architecture in the package name.
+    set(CPACK_SYSTEM_NAME "${CMAKE_SYSTEM_NAME}")
 else()
-    set(processor_name "AArch64")
-endif()
-if(LLVM_TOOLCHAIN_CROSS_BUILD_MINGW)
-    set(CPACK_SYSTEM_NAME "Windows-${processor_name}")
-else()
-    set(CPACK_SYSTEM_NAME "${CMAKE_SYSTEM_NAME}-${processor_name}")
+    string(TOLOWER ${CMAKE_SYSTEM_PROCESSOR} processor_name)
+    string(REGEX MATCH "amd64|x64|x86" x86_match ${processor_name})
+    if(x86_match)
+        set(processor_name "x86_64")
+    else()
+        set(processor_name "AArch64")
+    endif()
+    if(LLVM_TOOLCHAIN_CROSS_BUILD_MINGW)
+        set(CPACK_SYSTEM_NAME "Windows-${processor_name}")
+    else()
+        set(CPACK_SYSTEM_NAME "${CMAKE_SYSTEM_NAME}-${processor_name}")
+    endif()
 endif()
 
 add_subdirectory(
@@ -310,8 +344,6 @@ add_subdirectory(
 # Including CPack again after llvm CMakeLists.txt included it
 # resets CPACK_PACKAGE_VERSION to the default MAJOR.MINOR.PATCH format.
 include(CPack)
-
-set(llvm_bin ${LLVM_BINARY_DIR}/bin)
 
 # Ensure LLVM tool symlinks are installed.
 list(APPEND CMAKE_MODULE_PATH ${llvmproject_SOURCE_DIR}/llvm/cmake/modules)
@@ -324,6 +356,7 @@ llvm_install_symlink(LLVM llvm-strip llvm-objcopy ALWAYS_GENERATE)
 # is more mature and works better with LLVM.
 find_program(MESON_EXECUTABLE meson REQUIRED)
 
+include(cmake/to_meson_list.cmake)
 
 # Generate VERSION.txt
 # Use add_custom_target instead of add_custom_command so that the target
@@ -333,7 +366,8 @@ add_custom_target(
     version_txt
     COMMAND
     "${CMAKE_COMMAND}"
-    -DLLVMEmbeddedToolchainForArm_VERSION=${LLVMEmbeddedToolchainForArm_VERSION}
+    -DLLVMEmbeddedToolchainForRv32_VERSION=${LLVMEmbeddedToolchainForRv32_VERSION}
+    -DLLVMEmbeddedToolchainForRv32_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
     -Dllvmproject_SOURCE_DIR=${llvmproject_SOURCE_DIR}
     -Dpicolibc_SOURCE_DIR=${picolibc_SOURCE_DIR}
     -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/generate_version_txt.cmake
@@ -343,7 +377,7 @@ install(
     FILES
     ${CMAKE_CURRENT_BINARY_DIR}/VERSION.txt
     DESTINATION .
-    COMPONENT llvm-toolchain
+    COMPONENT llvm-toolchain-docs
 )
 
 
@@ -352,6 +386,21 @@ add_custom_target(llvm-toolchain ALL)
 
 # Groups all the runtime targets
 add_custom_target(llvm-toolchain-runtimes)
+
+# Groups all C++ runtime libraries tests
+add_custom_target(check-llvm-toolchain-runtimes)
+add_custom_target(check-compiler-rt)
+add_custom_target(check-cxxabi)
+add_custom_target(check-unwind)
+add_custom_target(check-cxx)
+
+add_dependencies(
+    check-llvm-toolchain-runtimes
+    check-compiler-rt
+    check-cxxabi
+    check-unwind
+    check-cxx
+)
 
 if(NOT LLVM_TOOLCHAIN_CROSS_BUILD_MINGW)
     add_dependencies(
@@ -370,125 +419,181 @@ foreach(variant ${LLVM_TOOLCHAIN_LIBRARY_VARIANTS})
     set(enable_${variant} TRUE)
 endforeach()
 
-# Define which library variants to build and which flags to use.
-# The order is <parent directory name> <libc_type> <arch> <variant name> <flags>
-# e.g. "arm-none-eabi" "picolibc" "armv6m" "armv6m_soft_nofp" "-mfloat-abi=soft -march=armv6m"
-set(library_variants)
-
-# Add to the library_variants list libraries that share a common parent
-# directory and type of C library.
-# See after the function for examples of how it is used.
-function(add_library_variants parent_dir_name libc_type)
-    set(variant_args "${ARGN}")
-    while(variant_args)
-        list(POP_FRONT variant_args target_arch variant_suffix flags)
-
-        if(variant_suffix)
-            set(variant "${target_arch}_${variant_suffix}")
-        else()
-            set(variant "${target_arch}")
-        endif()
-
-        if(LLVM_TOOLCHAIN_LIBRARY_VARIANTS)
-            if(NOT enable_${variant})
-                message("Disabling library variant ${variant}")
-                continue()
-            else()
-                message("Enabling library variant ${variant}")
-            endif()
-        endif()
-
-        list(APPEND library_variants "${parent_dir_name}" "${libc_type}" "${target_arch}" "${variant}" "${flags}")
-    endwhile()
-
-    set(library_variants "${library_variants}" PARENT_SCOPE)
-endfunction()
-
-# Define which library variants to build and which flags to use.
-# The order is <arch> <name suffix> <flags>
-#add_library_variants(aarch64-none-elf picolibc
-#aarch64         ""                  "-march=armv8-a"
-#)
-add_library_variants(riscv32-none-eabi picolibc
-    #riscv32         "soft"           "-mabi=ilp32 -march=rv32imac"
-    riscv32         soft_nofp           "-mabi=ilp32 -march=rv32imac"
-    riscv32         hard_fp             "-mabi=ilp32f -march=rv32imafc"
+set(picolibc_specific_runtimes_options
+    -DLIBCXXABI_ENABLE_EXCEPTIONS=OFF
+    -DLIBCXXABI_ENABLE_THREADS=OFF
+    -DLIBCXX_TEST_CONFIG=${CMAKE_CURRENT_SOURCE_DIR}/test-support/llvm-libc++-picolibc.cfg.in
+    -DLIBCXX_ENABLE_EXCEPTIONS=OFF
+    -DLIBCXXABI_TEST_CONFIG=${CMAKE_CURRENT_SOURCE_DIR}/test-support/llvm-libc++abi-picolibc.cfg.in
+    -DLIBCXX_ENABLE_MONOTONIC_CLOCK=OFF
+    -DLIBCXX_ENABLE_RANDOM_DEVICE=OFF
+    -DLIBCXX_ENABLE_RTTI=OFF
+    -DLIBCXX_ENABLE_THREADS=OFF
+    -DLIBCXX_ENABLE_WIDE_CHARACTERS=OFF
+    -DLIBUNWIND_ENABLE_THREADS=OFF
+    -DLIBUNWIND_TEST_CONFIG=${CMAKE_CURRENT_SOURCE_DIR}/test-support/llvm-libunwind-picolibc.cfg.in
 )
 
+add_custom_target(check-picolibc)
+# Set LLVM_DEFAULT_EXTERNAL_LIT to the directory of clang
+# which was build in previous step. This path is not exported
+# by add_subdirectory of llvm project
+set(LLVM_DEFAULT_EXTERNAL_LIT "${LLVM_BINARY_DIR}/bin/llvm-lit")
 
-set(library_variants_copy "${library_variants}")
-# Destructively iterate over a copy of the tuples defining the variants.
-while(library_variants_copy)
-    list(POP_FRONT library_variants_copy parent_dir_name libc_type target_arch variant flags)
+function(get_test_executor_params target_triple qemu_machine qemu_cpu qemu_params)
+    if(target_triple MATCHES "^aarch64")
+        set(qemu_command "qemu-system-aarch64")
+    else()
+        set(qemu_command "qemu-system-rv32")
+    endif()
 
-        set(target  "riscv32-unkown-elf")
-        set(cpu_family riscv)
-    set(variant_directory "${parent_dir_name}/${variant}")
-    set(install_directory "${LLVM_BINARY_DIR}/lib/clang-runtimes/${variant_directory}")
-    set(common_flags "--target=${target} ${flags}")
+    # Use colon as a separator because comma and semicolon are used for
+    # other purposes in CMake.
+    string(REPLACE " " ":" qemu_params_list "${qemu_params}")
 
-    # Create clang configuration files
-    # https://clang.llvm.org/docs/UsersManual.html#configuration-files
-    set(crt0 "crt0.o")
-    set(extra_args "")
-    configure_file(cmake/config.cfg.in ${llvm_bin}/${variant}.cfg)
-    set(crt0 "crt0-semihost.o")
-    set(extra_args "\n-lsemihost")
-    configure_file(cmake/config.cfg.in ${llvm_bin}/${variant}_semihost.cfg)
-    install(FILES
-        ${llvm_bin}/${variant}.cfg
-        ${llvm_bin}/${variant}_semihost.cfg
-        DESTINATION bin
-        COMPONENT llvm-toolchain
-    )
+    set(
+        test_executor_params
+        --qemu-command ${qemu_command}
+        --qemu-machine ${qemu_machine})
+    if(qemu_cpu)
+        list(APPEND test_executor_params --qemu-cpu ${qemu_cpu})
+    endif()
+    if(qemu_params_list)
+        list(APPEND test_executor_params "--qemu-params=${qemu_params_list}")
+    endif()
+    set(test_executor_params "${test_executor_params}" PARENT_SCOPE)
+endfunction()
 
+function(
+    add_picolibc
+    directory
+    variant
+    target_triple
+    flags
+    test_executor_params
+    default_boot_flash_addr
+    default_boot_flash_size
+    default_flash_addr
+    default_flash_size
+    default_ram_addr
+    default_ram_size
+    default_stack_size
+)
     if(CMAKE_INSTALL_MESSAGE STREQUAL NEVER)
         set(MESON_INSTALL_QUIET "--quiet")
     endif()
 
-    if(libc_type STREQUAL "picolibc")
-        ExternalProject_Add(
-            picolibc_${variant}
-            SOURCE_DIR ${picolibc_SOURCE_DIR}
-            INSTALL_DIR ${install_directory}
-            PREFIX picolibc/${variant}
-            DEPENDS clang lld llvm-ar llvm-config llvm-nm llvm-ranlib llvm-strip
-            CONFIGURE_COMMAND ${MESON_EXECUTABLE} -Dincludedir=include -Dlibdir=lib --prefix <INSTALL_DIR> --cross-file <BINARY_DIR>/meson-cross-build.txt ${picolibc_SOURCE_DIR}
-            BUILD_COMMAND ninja
-            INSTALL_COMMAND ${MESON_EXECUTABLE} install ${MESON_INSTALL_QUIET}
-            USES_TERMINAL_CONFIGURE TRUE
-            USES_TERMINAL_BUILD TRUE
-            USES_TERMINAL_TEST TRUE
-            LIST_SEPARATOR ,
-            # Always run the build command so that incremental builds are correct.
-            BUILD_ALWAYS TRUE
-            CONFIGURE_HANDLED_BY_BUILD TRUE
-        )
-        # Set meson_c_args to a comma-separated list of the clang path
-        # and flags e.g. 'path/to/clang', '--target=armv6m-none-eabi',
-        # '-march=armv6m'
-        set(meson_c_args "${common_flags}")
-        string(REPLACE " " "', '" meson_c_args "${meson_c_args}")
-        set(meson_c_args "'${llvm_bin}/clang', '${meson_c_args}'")
-        ExternalProject_Get_Property(picolibc_${variant} BINARY_DIR)
-        configure_file(cmake/meson-cross-build.txt.in ${BINARY_DIR}/meson-cross-build.txt @ONLY)
-        set(libc_target picolibc_${variant})
-        set(libc_specific_runtimes_options
-            -DLIBCXXABI_ENABLE_EXCEPTIONS=OFF
-            -DLIBCXXABI_ENABLE_THREADS=OFF
-            -DLIBCXX_ENABLE_EXCEPTIONS=OFF
-            -DLIBCXX_ENABLE_MONOTONIC_CLOCK=OFF
-            -DLIBCXX_ENABLE_RANDOM_DEVICE=OFF
-            -DLIBCXX_ENABLE_RTTI=OFF
-            -DLIBCXX_ENABLE_THREADS=OFF
-            -DLIBCXX_ENABLE_WIDE_CHARACTERS=OFF
-            -DLIBUNWIND_ENABLE_THREADS=OFF
-        )
+    #if(target_triple MATCHES "^aarch64")
+    #set(cpu_family aarch64)
+    #else()
+        set(cpu_family riscv)
+    #endif()
+
+    ExternalProject_Add(
+        picolibc_${variant}
+        SOURCE_DIR ${picolibc_SOURCE_DIR}
+        INSTALL_DIR "${LLVM_BINARY_DIR}/${directory}"
+        PREFIX picolibc/${variant}
+        DEPENDS clang lld llvm-ar llvm-config llvm-nm llvm-ranlib llvm-strip
+        CONFIGURE_COMMAND
+            ${MESON_EXECUTABLE}
+            setup
+            -Dincludedir=include
+            -Dlibdir=lib
+            -Dspecsdir=none
+            -Dmultilib=false
+            -Dtests-enable-stack-protector=false
+            --prefix <INSTALL_DIR>
+            --cross-file <BINARY_DIR>/meson-cross-build.txt
+            <SOURCE_DIR>
+        BUILD_COMMAND ${MESON_EXECUTABLE} configure -Dtests=false
+        COMMAND ${MESON_EXECUTABLE} compile
+        INSTALL_COMMAND ${MESON_EXECUTABLE} install ${MESON_INSTALL_QUIET}
+        TEST_COMMAND ${MESON_EXECUTABLE} configure -Dtests=true
+        # meson<0.64.0 does not properly apply new configuration after
+        # "meson configure -Dtests=false"
+        # use "meson setup --reconfigure" as a workaround
+        COMMAND ${MESON_EXECUTABLE} setup . <SOURCE_DIR> -Dtests=true --reconfigure
+        COMMAND ${MESON_EXECUTABLE} test
+        COMMAND ${MESON_EXECUTABLE} configure -Dtests=false
+        USES_TERMINAL_CONFIGURE FALSE
+        USES_TERMINAL_BUILD TRUE
+        USES_TERMINAL_TEST TRUE
+        LIST_SEPARATOR ,
+        # Always run the build command so that incremental builds are correct.
+        BUILD_ALWAYS TRUE
+        CONFIGURE_HANDLED_BY_BUILD TRUE
+        TEST_EXCLUDE_FROM_MAIN TRUE
+        STEP_TARGETS install test
+    )
+
+    # Set meson_c_args to a comma-separated list of the clang path
+    # and flags e.g. 'path/to/clang', '--target=armv6m-none-eabi',
+    # '-march=armv6m'
+    separate_arguments(flags)
+    list(PREPEND flags "${LLVM_BINARY_DIR}/bin/clang${CMAKE_EXECUTABLE_SUFFIX}")
+    list(APPEND flags --sysroot "${LLVM_BINARY_DIR}/${directory}")
+    to_meson_list("${flags}" meson_c_args)
+
+    set(test_executor_bin ${CMAKE_CURRENT_SOURCE_DIR}/test-support/picolibc-test-wrapper.py)
+    to_meson_list("${test_executor_params}" test_executor_params)
+
+    ExternalProject_Get_Property(picolibc_${variant} BINARY_DIR)
+    configure_file(${CMAKE_CURRENT_FUNCTION_LIST_DIR}/cmake/meson-cross-build.txt.in ${BINARY_DIR}/meson-cross-build.txt @ONLY)
+
+    # Building picolibc tests requires compiler_rt to be installed.
+    # Building compiler_rt tests requires picolibc to be installed.
+    # To solve this compiler_rt relies on picolibc to be just installed, not on
+    # the full target, which would include tests. Picolibc tests, are enabled
+    # only in tests step, otherwise, they would be built before install.
+    ExternalProject_Add_StepDependencies(picolibc_${variant} test compiler_rt_${variant}-install)
+
+    add_dependencies(check-picolibc picolibc_${variant}-test)
+    add_dependencies(
+        llvm-toolchain-runtimes
+        picolibc_${variant}
+    )
+endfunction()
+
+function(get_runtimes_flags directory flags)
+  set(runtimes_flags "${flags} -ffunction-sections -fdata-sections -fno-ident --sysroot ${LLVM_BINARY_DIR}/${directory} -I ${LLVM_BINARY_DIR}/${directory}/include" PARENT_SCOPE)
+endfunction()
+
+function(
+    add_compiler_rt
+    directory
+    variant
+    target_triple
+    flags
+    test_executor
+    libc_target
+)
+    # We can't always put the exact target
+    # architecture in the triple, because compiler-rt's cmake
+    # system doesn't recognize every possible Arm architecture
+    # version. So mostly we just say 'arm' and control the arch
+    # version via -march=armv7m (or whatever).
+    # Exceptions are architectures pre-armv7, which compiler-rt expects to
+    # see in the triple because that's where it looks to decide whether to
+    # use specific assembly sources.
+    #if(NOT target_triple MATCHES "^(aarch64-none-elf|arm-none-eabi|armv[4-6])")
+    #message(FATAL_ERROR "\
+    #Target triple name \"${target_triple}\" not compatible with compiler-rt.
+    #Use -march to specify the architecture.")
+    #endif()
+    # Also, compiler-rt looks in the ABI component of the
+    # triple to decide whether to use the hard float ABI.
+    #if(flags MATCHES "-mfloat-abi=hard" AND NOT target_triple MATCHES "-eabihf$")
+    #message(FATAL_ERROR "\
+    #Hard-float library with target triple \"${target_triple}\" must end \"-eabihf\"")
+    #endif()
+
+    get_runtimes_flags("${directory}" "${flags}")
+
+    set(compiler_rt_test_flags "${runtimes_flags} -fno-exceptions -fno-rtti -lcrt0-semihost -lsemihost -T picolibcpp.ld")
+    if(variant STREQUAL "armv6m_soft_nofp")
+        set(compiler_rt_test_flags "${compiler_rt_test_flags} -fomit-frame-pointer")
     endif()
-
-    # compiler-rt
-
-    set(runtimes_flags "${common_flags} -ffunction-sections -fdata-sections -fno-ident --sysroot ${install_directory} -I${install_directory}/include   -L${install_directory}/lib  ")
 
     ExternalProject_Add(
         compiler_rt_${variant}
@@ -497,23 +602,21 @@ while(library_variants_copy)
         INSTALL_DIR compiler-rt/${variant}/install
         DEPENDS clang lld llvm-ar llvm-config llvm-nm llvm-ranlib ${libc_target}
         CMAKE_ARGS
-        -DCMAKE_AR=${llvm_bin}/llvm-ar
-        -DCMAKE_ASM_COMPILER_TARGET=${target}
+        -DCMAKE_AR=${LLVM_BINARY_DIR}/bin/llvm-ar${CMAKE_EXECUTABLE_SUFFIX}
+        -DCMAKE_ASM_COMPILER_TARGET=${target_triple}
         -DCMAKE_ASM_FLAGS=${runtimes_flags}
         -DCMAKE_BUILD_TYPE=Release
-        -DCMAKE_CXX_COMPILER=${llvm_bin}/clang++
-        -DCMAKE_CXX_COMPILER_TARGET=${target}
+        -DCMAKE_CXX_COMPILER=${LLVM_BINARY_DIR}/bin/clang++${CMAKE_EXECUTABLE_SUFFIX}
+        -DCMAKE_CXX_COMPILER_TARGET=${target_triple}
         -DCMAKE_CXX_FLAGS=${runtimes_flags}
-        -DCMAKE_C_COMPILER=${llvm_bin}/clang
-        -DCMAKE_C_COMPILER_TARGET=${target}
+        -DCMAKE_C_COMPILER=${LLVM_BINARY_DIR}/bin/clang${CMAKE_EXECUTABLE_SUFFIX}
+        -DCMAKE_C_COMPILER_TARGET=${target_triple}
         -DCMAKE_C_FLAGS=${runtimes_flags}
         -DCMAKE_INSTALL_MESSAGE=${CMAKE_INSTALL_MESSAGE}
         -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
-        -DCMAKE_NM=${llvm_bin}/llvm-nm
-        -DCMAKE_RANLIB=${llvm_bin}/llvm-ranlib
-        # Set the cmake system name to Generic so that no host system
-        # include files are searched. At least on OSX this problem
-        # occurs.
+        -DCMAKE_NM=${LLVM_BINARY_DIR}/bin/llvm-nm${CMAKE_EXECUTABLE_SUFFIX}
+        -DCMAKE_RANLIB=${LLVM_BINARY_DIR}/bin/llvm-ranlib${CMAKE_EXECUTABLE_SUFFIX}
+        # Let CMake know we're cross-compiling
         -DCMAKE_SYSTEM_NAME=Generic
         -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY
         -DCOMPILER_RT_BAREMETAL_BUILD=ON
@@ -522,10 +625,15 @@ while(library_variants_copy)
         -DCOMPILER_RT_BUILD_SANITIZERS=OFF
         -DCOMPILER_RT_BUILD_XRAY=OFF
         -DCOMPILER_RT_DEFAULT_TARGET_ONLY=ON
-        -DLLVM_CCACHE_BUILD=${LLVM_CCACHE_BUILD}
-        -DLLVM_CONFIG_PATH=${llvm_bin}/llvm-config
+        -DCOMPILER_RT_INCLUDE_TESTS=ON
+        -DCOMPILER_RT_EMULATOR=${test_executor}
+        -DCOMPILER_RT_TEST_COMPILER=${LLVM_BINARY_DIR}/bin/clang
+        -DCOMPILER_RT_TEST_COMPILER_CFLAGS=${compiler_rt_test_flags}
+        -DLLVM_LIT_ARGS=${LLVM_LIT_ARGS}
+        -DLLVM_CMAKE_DIR=${LLVM_BINARY_DIR}/lib/cmake/llvm
         -DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=ON
-        USES_TERMINAL_CONFIGURE TRUE
+        STEP_TARGETS build install
+        USES_TERMINAL_CONFIGURE FALSE
         USES_TERMINAL_BUILD TRUE
         USES_TERMINAL_INSTALL TRUE
         USES_TERMINAL_TEST TRUE
@@ -533,62 +641,85 @@ while(library_variants_copy)
         # Always run the build command so that incremental builds are correct.
         BUILD_ALWAYS TRUE
         CONFIGURE_HANDLED_BY_BUILD TRUE
-    )
-    ExternalProject_Get_Property(compiler_rt_${variant} INSTALL_DIR)
-    # Copy compiler-rt lib directory, moving libraries out of their
-    # target-specific subdirectory.
-    add_custom_command(
-        TARGET compiler_rt_${variant}
-        POST_BUILD
-        COMMAND "${CMAKE_COMMAND}" -E copy_directory
-            ${INSTALL_DIR}/lib/${target} ${install_directory}/lib
+        INSTALL_COMMAND ${CMAKE_COMMAND} --install .
+        # Copy compiler-rt lib directory, moving libraries out of their
+        # target-specific subdirectory.
+        COMMAND
+            ${CMAKE_COMMAND}
+            -E copy_directory
+            <INSTALL_DIR>/lib/${target_triple}
+            "${LLVM_BINARY_DIR}/${directory}/lib"
     )
 
-    # Other LLVM runtimes
+    add_dependencies(
+        llvm-toolchain-runtimes
+        compiler_rt_${variant}
+    )
+endfunction()
+
+function(
+    add_libcxx_libcxxabi_libunwind
+    directory
+    variant
+    target_triple
+    flags
+    test_executor
+    libc_target
+    extra_cmake_options
+)
+    get_runtimes_flags("${directory}" "${flags}")
 
     ExternalProject_Add(
-        runtimes_${variant}
+        libcxx_libcxxabi_libunwind_${variant}
         SOURCE_DIR ${llvmproject_SOURCE_DIR}/runtimes
-        INSTALL_DIR ${install_directory}
-        PREFIX runtimes/${variant}
+        INSTALL_DIR "${LLVM_BINARY_DIR}/${directory}"
+        PREFIX libcxx_libcxxabi_libunwind/${variant}
         DEPENDS clang compiler_rt_${variant} lld llvm-ar llvm-config llvm-nm llvm-ranlib ${libc_target}
         CMAKE_ARGS
-        -DCMAKE_AR=${llvm_bin}/llvm-ar
+        -DCMAKE_AR=${LLVM_BINARY_DIR}/bin/llvm-ar${CMAKE_EXECUTABLE_SUFFIX}
         -DCMAKE_ASM_FLAGS=${runtimes_flags}
         -DCMAKE_BUILD_TYPE=MinSizeRel
-        -DCMAKE_CXX_COMPILER=${llvm_bin}/clang++
-        -DCMAKE_CXX_COMPILER_TARGET=${target}
+        -DCMAKE_CXX_COMPILER=${LLVM_BINARY_DIR}/bin/clang++${CMAKE_EXECUTABLE_SUFFIX}
+        -DCMAKE_CXX_COMPILER_TARGET=${target_triple}
         -DCMAKE_CXX_FLAGS=${runtimes_flags}
-        -DCMAKE_C_COMPILER=${llvm_bin}/clang
-        -DCMAKE_C_COMPILER_TARGET=${target}
+        -DCMAKE_C_COMPILER=${LLVM_BINARY_DIR}/bin/clang${CMAKE_EXECUTABLE_SUFFIX}
+        -DCMAKE_C_COMPILER_TARGET=${target_triple}
         -DCMAKE_C_FLAGS=${runtimes_flags}
         -DCMAKE_INSTALL_MESSAGE=${CMAKE_INSTALL_MESSAGE}
         -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
-        -DCMAKE_NM=${llvm_bin}/llvm-nm
-        -DCMAKE_RANLIB=${llvm_bin}/llvm-ranlib
+        -DCMAKE_NM=${LLVM_BINARY_DIR}/bin/llvm-nm${CMAKE_EXECUTABLE_SUFFIX}
+        -DCMAKE_RANLIB=${LLVM_BINARY_DIR}/bin/llvm-ranlib${CMAKE_EXECUTABLE_SUFFIX}
+        # Let CMake know we're cross-compiling
+        -DCMAKE_SYSTEM_NAME=Generic
         -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY
+        -DLIBC_LINKER_SCRIPT=picolibcpp.ld
         -DLIBCXXABI_BAREMETAL=ON
         -DLIBCXXABI_ENABLE_ASSERTIONS=OFF
         -DLIBCXXABI_ENABLE_SHARED=OFF
         -DLIBCXXABI_ENABLE_STATIC=ON
-        -DLIBCXXABI_LIBCXX_INCLUDES=${install_directory}/include/c++/v1
+        -DLIBCXXABI_LIBCXX_INCLUDES="${LLVM_BINARY_DIR}/${directory}/include/c++/v1"
         -DLIBCXXABI_USE_COMPILER_RT=ON
         -DLIBCXXABI_USE_LLVM_UNWINDER=ON
+        -DLIBCXXABI_EXECUTOR=${test_executor}
         -DLIBCXX_CXX_ABI=libcxxabi
-        -DLIBCXX_ENABLE_DEBUG_MODE_SUPPORT=OFF
         -DLIBCXX_ENABLE_FILESYSTEM=OFF
         -DLIBCXX_ENABLE_SHARED=OFF
         -DLIBCXX_ENABLE_STATIC=ON
         -DLIBCXX_INCLUDE_BENCHMARKS=OFF
+        -DLIBCXX_EXECUTOR=${test_executor}
         -DLIBUNWIND_ENABLE_SHARED=OFF
         -DLIBUNWIND_ENABLE_STATIC=ON
         -DLIBUNWIND_IS_BAREMETAL=ON
         -DLIBUNWIND_REMEMBER_HEAP_ALLOC=ON
         -DLIBUNWIND_USE_COMPILER_RT=ON
-        -DLLVM_CCACHE_BUILD=${LLVM_CCACHE_BUILD}
+        -DLIBUNWIND_EXECUTOR=${test_executor}
+        -DLLVM_LIT_ARGS=${LLVM_LIT_ARGS}
         -DLLVM_ENABLE_RUNTIMES=libcxxabi,libcxx,libunwind
-        ${libc_specific_runtimes_options}
-        USES_TERMINAL_CONFIGURE TRUE
+        -DRUNTIME_TEST_ARCH_FLAGS=${flags}
+        -DRUNTIME_VARIANT_NAME=${variant}
+        ${extra_cmake_options}
+        STEP_TARGETS build
+        USES_TERMINAL_CONFIGURE FALSE
         USES_TERMINAL_BUILD TRUE
         USES_TERMINAL_INSTALL TRUE
         USES_TERMINAL_TEST TRUE
@@ -600,22 +731,335 @@ while(library_variants_copy)
 
     add_dependencies(
         llvm-toolchain-runtimes
-        compiler_rt_${variant}
-        ${libc_target}
-        runtimes_${variant}
+        libcxx_libcxxabi_libunwind_${variant}
     )
+endfunction()
+
+function(add_compiler_rt_tests variant)
+    ExternalProject_Add_Step(
+        compiler_rt_${variant}
+        check-compiler-rt
+        COMMAND "${CMAKE_COMMAND}" --build <BINARY_DIR> --target check-compiler-rt
+        USES_TERMINAL TRUE
+        EXCLUDE_FROM_MAIN TRUE
+        ALWAYS TRUE
+    )
+    ExternalProject_Add_StepTargets(compiler_rt_${variant} check-compiler-rt)
+    ExternalProject_Add_StepDependencies(
+        compiler_rt_${variant}
+        check-compiler-rt
+        compiler_rt_${variant}-build
+    )
+    add_custom_target(check-compiler-rt-${variant})
+    add_dependencies(check-compiler-rt-${variant} compiler_rt_${variant}-check-compiler-rt)
+    add_dependencies(check-compiler-rt check-compiler-rt-${variant})
+    add_dependencies(check-llvm-toolchain-runtimes-${variant} check-compiler-rt-${variant})
+endfunction()
+
+function(add_libcxx_libcxxabi_libunwind_tests variant)
+    foreach(check_target check-cxxabi check-unwind check-cxx)
+        ExternalProject_Add_Step(
+            libcxx_libcxxabi_libunwind_${variant}
+            ${check_target}
+            COMMAND "${CMAKE_COMMAND}" --build <BINARY_DIR> --target ${check_target}
+            USES_TERMINAL TRUE
+            EXCLUDE_FROM_MAIN TRUE
+            ALWAYS TRUE
+        )
+        ExternalProject_Add_StepTargets(libcxx_libcxxabi_libunwind_${variant} ${check_target})
+        ExternalProject_Add_StepDependencies(
+            libcxx_libcxxabi_libunwind_${variant}
+            ${check_target}
+            libcxx_libcxxabi_libunwind_${variant}-build
+        )
+        add_custom_target(${check_target}-${variant})
+        add_dependencies(${check_target}-${variant} libcxx_libcxxabi_libunwind_${variant}-${check_target})
+        add_dependencies(${check_target} libcxx_libcxxabi_libunwind_${variant}-${check_target})
+        add_dependencies(check-llvm-toolchain-runtimes-${variant} ${check_target}-${variant})
+    endforeach()
+endfunction()
+
+function(get_compiler_rt_target_triple target_arch flags)
+        #if(target_arch STREQUAL "aarch64")
+        #set(target_triple "aarch64-none-elf")
+        #else()
+        # Choose the target triple so that compiler-rt will do the
+        # right thing. We can't always put the exact target
+        # architecture in the triple, because compiler-rt's cmake
+        # system doesn't recognize every possible Arm architecture
+        # version. So mostly we just say 'arm' and control the arch
+        # version via -march=armv7m (or whatever).
+        # Exceptions are architectures pre-armv7, which compiler-rt expects to
+        # see in the triple because that's where it looks to decide whether to
+        # use specific assembly sources.
+            set(target_triple "riscv32-unknown-elf")
+            #if(flags MATCHES "-mfloat-abi=hard")
+            # Also, compiler-rt looks in the ABI component of the
+            # triple to decide whether to use the hard float ABI.
+            #set(target_triple "${target_triple}hf")
+            #endif()
+            #endif()
+    set(target_triple "${target_triple}" PARENT_SCOPE)
+endfunction()
+
+function(add_library_variant target_arch)
+    set(
+        one_value_args
+        SUFFIX
+        COMPILE_FLAGS
+        MULTILIB_FLAGS
+        QEMU_MACHINE
+        QEMU_CPU
+        QEMU_PARAMS
+        BOOT_FLASH_ADDRESS
+        BOOT_FLASH_SIZE
+        FLASH_ADDRESS
+        FLASH_SIZE
+        RAM_ADDRESS
+        RAM_SIZE
+        STACK_SIZE
+    )
+    cmake_parse_arguments(VARIANT "" "${one_value_args}" "" ${ARGN})
+
+    if(VARIANT_SUFFIX)
+        set(variant "${target_arch}_${VARIANT_SUFFIX}")
+    else()
+        set(variant "${target_arch}")
+    endif()
+
+    if(LLVM_TOOLCHAIN_LIBRARY_VARIANTS)
+        if(NOT enable_${variant})
+            message("Disabling library variant ${variant}")
+            return()
+        else()
+            message("Enabling library variant ${variant}")
+        endif()
+    endif()
+
+    #if(target_arch STREQUAL "aarch64")
+    #set(parent_dir_name aarch64-none-elf)
+    #else()
+        set(parent_dir_name riscv32-unknown-elf)
+        #endif()
+
+    get_compiler_rt_target_triple("${target_arch}" "${VARIANT_COMPILE_FLAGS}")
+
+    set(directory "${TARGET_LIBRARIES_DIR}/${parent_dir_name}/${variant}")
+    set(VARIANT_COMPILE_FLAGS "--target=${target_triple} ${VARIANT_COMPILE_FLAGS}")
+    get_test_executor_params(
+        "${target_triple}"
+        "${VARIANT_QEMU_MACHINE}"
+        "${VARIANT_QEMU_CPU}"
+        "${VARIANT_QEMU_PARAMS}"
+    )
+    set(
+        lit_test_executor
+        ${CMAKE_CURRENT_SOURCE_DIR}/test-support/lit-exec-qemu.py
+        ${test_executor_params}
+    )
+    list(JOIN lit_test_executor " " lit_test_executor)
+    if(NOT PREBUILT_TARGET_LIBRARIES)
+        add_picolibc(
+            "${directory}"
+            "${variant}"
+            "${target_triple}"
+            "${VARIANT_COMPILE_FLAGS}"
+            "${test_executor_params}"
+            "${VARIANT_BOOT_FLASH_ADDRESS}"
+            "${VARIANT_BOOT_FLASH_SIZE}"
+            "${VARIANT_FLASH_ADDRESS}"
+            "${VARIANT_FLASH_SIZE}"
+            "${VARIANT_RAM_ADDRESS}"
+            "${VARIANT_RAM_SIZE}"
+            "${VARIANT_STACK_SIZE}"
+        )
+        add_compiler_rt(
+            "${directory}"
+            "${variant}"
+            "${target_triple}"
+            "${VARIANT_COMPILE_FLAGS}"
+            "${lit_test_executor}"
+            "picolibc_${variant}-install"
+        )
+        add_libcxx_libcxxabi_libunwind(
+            "${directory}"
+            "${variant}"
+            "${target_triple}"
+            "${VARIANT_COMPILE_FLAGS}"
+            "${lit_test_executor}"
+            "picolibc_${variant}-install"
+            "${picolibc_specific_runtimes_options}"
+        )
+        if(VARIANT_COMPILE_FLAGS MATCHES "-march=armv8")
+            message("C++ runtime libraries tests disabled for ${variant}")
+        else()
+            add_custom_target(check-llvm-toolchain-runtimes-${variant})
+            add_dependencies(check-llvm-toolchain-runtimes check-llvm-toolchain-runtimes-${variant})
+            add_compiler_rt_tests("${variant}")
+            add_libcxx_libcxxabi_libunwind_tests("${variant}")
+        endif()
+    endif()
+
+    string(APPEND multilib_yaml_content "- Dir: ${parent_dir_name}/${variant}\n")
+
+    string(APPEND multilib_yaml_content "  Flags:\n")
+    string(REPLACE " " ";" multilib_flags_list ${VARIANT_MULTILIB_FLAGS})
+    foreach(flag ${multilib_flags_list})
+        string(APPEND multilib_yaml_content "  - ${flag}\n")
+    endforeach()
+    string(APPEND multilib_yaml_content "  ExclusiveGroup: stdlibs\n")
 
     install(
-        DIRECTORY ${install_directory}
-        DESTINATION lib/clang-runtimes/${parent_dir_name}
-        COMPONENT llvm-toolchain
+        DIRECTORY "${LLVM_BINARY_DIR}/${directory}/"
+        DESTINATION "${directory}"
+        COMPONENT llvm-toolchain-libs
     )
-endwhile()
+    set(multilib_yaml_content "${multilib_yaml_content}" PARENT_SCOPE)
+endfunction()
+
+set(multilib_yaml_content "")
+#)
+# When no -mfpu=none is specified, the compiler internally adds all other
+# possible fpu settings before searching for matching variants. So for the
+# no-fpu variant to win, it has to be in multilab.yaml after all other
+# fpu variants. The order of variants in multilab.yaml depends on the order
+# of the add_library_variant calls. So the add_library_variant that adds
+# the soft_nofp for armv7m is placed after all other armv7m variants.
+add_library_variant(
+    riscv32
+    SUFFIX soft_nofp
+    COMPILE_FLAGS " -march=rv32imac -mabi=ilp32 "
+    MULTILIB_FLAGS "--target=riscv32imac-unknown-elf "
+    QEMU_MACHINE "mps2-an385"
+    QEMU_CPU "cortex-m3"
+    BOOT_FLASH_ADDRESS 0x00000000
+    BOOT_FLASH_SIZE 0x1000
+    FLASH_ADDRESS 0x00001000
+    FLASH_SIZE 0x3ff000
+    RAM_ADDRESS 0x20000000
+    RAM_SIZE 2M
+    STACK_SIZE 4K
+)
+add_library_variant(
+  riscv32
+  SUFFIX hard_fp
+  COMPILE_FLAGS " -march=rv32imafc -mabi=ilp32f "
+  MULTILIB_FLAGS "--target=riscv32imafc-unknown-elf "
+  QEMU_MACHINE "mps2-an385"
+  QEMU_CPU "cortex-m3"
+  BOOT_FLASH_ADDRESS 0x00000000
+  BOOT_FLASH_SIZE 0x1000
+  FLASH_ADDRESS 0x00001000
+  FLASH_SIZE 0x3ff000
+  RAM_ADDRESS 0x20000000
+  RAM_SIZE 2M
+  STACK_SIZE 4K
+)
+#add_library_variant(
+#armv7m
+#SUFFIX soft_nofp
+#COMPILE_FLAGS "-mfloat-abi=soft -march=armv7m -mfpu=none"
+#MULTILIB_FLAGS "--target=thumbv7m-none-unknown-eabi -mfpu=none"
+#QEMU_MACHINE "mps2-an385"
+#QEMU_CPU "cortex-m3"
+#BOOT_FLASH_ADDRESS 0x00000000
+#BOOT_FLASH_SIZE 0x1000
+#FLASH_ADDRESS 0x00001000
+#FLASH_SIZE 0x3ff000
+#RAM_ADDRESS 0x20000000
+#RAM_SIZE 2M
+#STACK_SIZE 4K
+#)
+#add_library_variant(
+#armv7em
+#SUFFIX hard_fpv4_sp_d16
+#COMPILE_FLAGS "-mfloat-abi=hard -march=armv7em -mfpu=fpv4-sp-d16"
+#MULTILIB_FLAGS "--target=thumbv7em-none-unknown-eabihf -mfpu=fpv4-sp-d16"
+#QEMU_MACHINE "mps2-an386"
+#QEMU_CPU "cortex-m4"
+#BOOT_FLASH_ADDRESS 0x00000000
+#BOOT_FLASH_SIZE 0x1000
+#FLASH_ADDRESS 0x00001000
+#FLASH_SIZE 0x3ff000
+#RAM_ADDRESS 0x20000000
+##RAM_SIZE 2M
+#STACK_SIZE 4K
+#)
+#add_library_variant(
+#armv7em
+#SUFFIX hard_fpv5_d16
+#COMPILE_FLAGS "-mfloat-abi=hard -march=armv7em -mfpu=fpv5-d16"
+#MULTILIB_FLAGS "--target=thumbv7em-none-unknown-eabihf -mfpu=fpv5-d16"
+#QEMU_MACHINE "mps2-an500"
+#QEMU_CPU "cortex-m7"
+#BOOT_FLASH_ADDRESS 0x00000000
+#BOOT_FLASH_SIZE 0x1000
+#FLASH_ADDRESS 0x00001000
+#FLASH_SIZE 0x3ff000
+#RAM_ADDRESS 0x20000000
+#RAM_SIZE 2M
+#STACK_SIZE 4K
+#)
+# When no -mfpu=none is specified, the compiler internally adds all other
+# possible fpu settings before searching for matching variants. So for the
+# no-fpu variant to win, it has to be in multilab.yaml after all other
+# fpu variants. The order of variants in multilab.yaml depends on the order
+# of the add_library_variant calls. So the add_library_variant that adds
+# the soft_nofp for armv7em is placed after all other armv7em variants.
+#add_library_variant(
+        #armv7em
+    #SUFFIX soft_nofp
+    #COMPILE_FLAGS "-mfloat-abi=soft -march=armv7em -mfpu=none"
+    #MULTILIB_FLAGS "--target=thumbv7em-none-unknown-eabi -mfpu=none"
+    #QEMU_MACHINE "mps2-an386"
+    #QEMU_CPU "cortex-m4"
+    #BOOT_FLASH_ADDRESS 0x00000000
+    #BOOT_FLASH_SIZE 0x1000
+    #FLASH_ADDRESS 0x00001000
+    #FLASH_SIZE 0x3ff000
+    #RAM_ADDRESS 0x20000000
+    #RAM_SIZE 2M
+    #STACK_SIZE 4K
+    #)
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/multilib.yaml.in
+    ${CMAKE_CURRENT_BINARY_DIR}/multilib-without-fpus.yaml
+    @ONLY
+)
+
+add_custom_command(
+  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/llvm/${TARGET_LIBRARIES_DIR}/multilib.yaml
+  COMMAND ${CMAKE_COMMAND} -E copy
+    ${CMAKE_CURRENT_BINARY_DIR}/multilib-without-fpus.yaml
+    ${CMAKE_CURRENT_BINARY_DIR}/llvm/${TARGET_LIBRARIES_DIR}/multilib.yaml
+  COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/multilib-fpus.py"
+    "--clang=${LLVM_BINARY_DIR}/bin/clang${CMAKE_EXECUTABLE_SUFFIX}"
+    "--llvm-source=${llvmproject_SOURCE_DIR}"
+    >> "${CMAKE_CURRENT_BINARY_DIR}/llvm/${TARGET_LIBRARIES_DIR}/multilib.yaml"
+  DEPENDS
+    clang
+    "${CMAKE_CURRENT_SOURCE_DIR}/multilib-fpus.py"
+    "${CMAKE_CURRENT_BINARY_DIR}/multilib-without-fpus.yaml")
+add_custom_target(multilib_yaml ALL DEPENDS
+  ${CMAKE_CURRENT_BINARY_DIR}/llvm/${TARGET_LIBRARIES_DIR}/multilib.yaml)
+add_dependencies(llvm-toolchain-runtimes multilib_yaml)
+
+install(
+    FILES ${CMAKE_CURRENT_BINARY_DIR}/llvm/${TARGET_LIBRARIES_DIR}/multilib.yaml
+    DESTINATION ${TARGET_LIBRARIES_DIR}
+    COMPONENT llvm-toolchain-libs
+)
+
+install(
+    FILES CHANGELOG.md LICENSE.txt README.md
+    DESTINATION .
+    COMPONENT llvm-toolchain-docs
+)
 
 install(
     DIRECTORY docs
     DESTINATION .
-    COMPONENT llvm-toolchain
+    COMPONENT llvm-toolchain-docs
 )
 
 if(LLVM_TOOLCHAIN_CROSS_BUILD_MINGW)
@@ -626,9 +1070,9 @@ endif()
 configure_file(cmake/THIRD-PARTY-LICENSES.txt.in THIRD-PARTY-LICENSES.txt)
 
 install(
-    FILES CHANGELOG.md LICENSE.txt README.md ${CMAKE_CURRENT_BINARY_DIR}/THIRD-PARTY-LICENSES.txt
+    FILES ${CMAKE_CURRENT_BINARY_DIR}/THIRD-PARTY-LICENSES.txt
     DESTINATION .
-    COMPONENT llvm-toolchain
+    COMPONENT llvm-toolchain-third-party-licenses
 )
 
 set(third_party_license_files
@@ -638,6 +1082,7 @@ set(third_party_license_files
     ${llvmproject_SOURCE_DIR}/compiler-rt/LICENSE.TXT   COMPILER-RT-LICENSE.txt
     ${llvmproject_SOURCE_DIR}/libcxx/LICENSE.TXT        LIBCXX-LICENSE.txt
     ${llvmproject_SOURCE_DIR}/libcxxabi/LICENSE.TXT     LIBCXXABI-LICENSE.txt
+    ${llvmproject_SOURCE_DIR}/libunwind/LICENSE.TXT     LIBUNWIND-LICENSE.txt
     ${picolibc_SOURCE_DIR}/COPYING.NEWLIB               COPYING.NEWLIB
     ${picolibc_SOURCE_DIR}/COPYING.picolibc             COPYING.picolibc
 )
@@ -646,7 +1091,7 @@ while(third_party_license_files)
     install(
         FILES ${source_file}
         DESTINATION third-party-licenses
-        COMPONENT llvm-toolchain
+        COMPONENT llvm-toolchain-third-party-licenses
         RENAME ${destination_name}
     )
 endwhile()
@@ -660,7 +1105,7 @@ endif()
 install(
     DIRECTORY samples
     DESTINATION .
-    COMPONENT llvm-toolchain
+    COMPONENT llvm-toolchain-samples
     FILES_MATCHING REGEX "${sample_files_regex}"
 )
 
@@ -670,38 +1115,52 @@ install(
 #   ninja install-llvm-toolchain
 add_custom_target(
     install-llvm-toolchain
-    COMMAND
-        "${CMAKE_COMMAND}"
-        --install ${CMAKE_BINARY_DIR}
-        --strip
-        --component llvm-toolchain
-    USES_TERMINAL
 )
+set(LLVM_TOOLCHAIN_DISTRIBUTION_COMPONENTS_ALL ${LLVM_TOOLCHAIN_DISTRIBUTION_COMPONENTS})
 if(LLVM_TOOLCHAIN_CROSS_BUILD_MINGW)
-    # No further action needed to install because the MinGW binaries
-    # are declared to be part of the llvm-toolchain
-    # install component.
+    list(APPEND LLVM_TOOLCHAIN_DISTRIBUTION_COMPONENTS_ALL llvm-toolchain-mingw)
+endif()
+foreach(component ${LLVM_TOOLCHAIN_DISTRIBUTION_COMPONENTS})
+    add_custom_target(
+        install-${component}
+        COMMAND
+            "${CMAKE_COMMAND}"
+            --install ${CMAKE_BINARY_DIR}
+            --component ${component}
+        USES_TERMINAL
+    )
+    add_dependencies(
+        install-${component}
+        llvm-toolchain
+    )
+    add_dependencies(
+        install-llvm-toolchain
+        install-${component}
+    )
+endforeach()
+if(LLVM_TOOLCHAIN_CROSS_BUILD_MINGW)
+    # No further action needed to install because the LLVM distributables
+    # are copied as part of the llvm-toolchain-mingw component.
 else()
-    # Also run install-distribution-stripped to install the LLVM
+    # Also run install-distribution to install the LLVM
     # binaries.
     add_dependencies(
         install-llvm-toolchain
-        install-distribution-stripped
+        install-distribution
     )
 endif()
-add_dependencies(
-    install-llvm-toolchain
-    llvm-toolchain
-)
 
 
 # package-llvm-toolchain - target to create package
 if(LLVM_TOOLCHAIN_CROSS_BUILD_MINGW OR WIN32)
     set(cpack_generator ZIP)
     set(package_filename_extension ".zip")
+elseif(CMAKE_OSX_ARCHITECTURES)
+    set(cpack_generator DragNDrop)
+    set(package_filename_extension ".dmg")
 else()
-    set(cpack_generator TGZ)
-    set(package_filename_extension ".tar.gz")
+    set(cpack_generator TXZ)
+    set(package_filename_extension ".tar.xz")
 endif()
 # CPACK_PACKAGE_FILE_NAME may refer to the source package so use this variable instead.
 set(binary_package_name ${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}-${CPACK_SYSTEM_NAME})
@@ -737,70 +1196,12 @@ add_dependencies(
 )
 
 
-
-# Smoke tests
-
-# Run tests on the built toolchain.
 add_custom_target(check-llvm-toolchain)
-
-# Run tests on the packaged and unpacked toolchain.
-add_custom_target(check-package-llvm-toolchain)
-
-# Smoke tests
-foreach(test
-    basic-semihosting
-    cpp-basic-semihosting
-)
-    add_custom_target(
-        check-llvm-toolchain-smoketests-${test}
-        COMMAND make clean
-        COMMAND make run BIN_PATH=${llvm_bin}
-        COMMAND make clean
-        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/tests/smoketests/${test}
-    )
-    add_dependencies(check-llvm-toolchain-smoketests-${test} llvm-toolchain)
-    add_dependencies(check-llvm-toolchain check-llvm-toolchain-smoketests-${test})
-
-    # Post-package tests
-    add_custom_target(
-        check-package-llvm-toolchain-smoketests-${test}
-        COMMAND make clean
-        COMMAND make run BIN_PATH=${unpack_directory}/bin
-        COMMAND make clean
-        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/tests/smoketests/${test}
-    )
-    add_dependencies(check-package-llvm-toolchain-smoketests-${test} unpack-llvm-toolchain)
-    add_dependencies(check-package-llvm-toolchain check-package-llvm-toolchain-smoketests-${test})
-endforeach()
-
-# Samples
-# Don't run the baremetal-uart sample because it never terminates.
-foreach(test
-    baremetal-semihosting-riscv32
-    baremetal-semihosting
-    cpp-baremetal-semihosting
-)
-    add_custom_target(
-        check-llvm-toolchain-samples-${test}
-        COMMAND make clean
-        COMMAND make run BIN_PATH=${llvm_bin}
-        COMMAND make clean
-        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/samples/src/${test}
-    )
-    add_dependencies(check-llvm-toolchain-samples-${test} llvm-toolchain)
-    add_dependencies(check-llvm-toolchain check-llvm-toolchain-samples-${test})
-
-    # Post-package tests
-    add_custom_target(
-        check-package-llvm-toolchain-samples-${test}
-        COMMAND make clean
-        COMMAND make run BIN_PATH=${unpack_directory}/bin
-        COMMAND make clean
-        WORKING_DIRECTORY ${unpack_directory}/samples/src/${test}
-    )
-    add_dependencies(check-package-llvm-toolchain-samples-${test} unpack-llvm-toolchain)
-    add_dependencies(check-package-llvm-toolchain check-package-llvm-toolchain-samples-${test})
-endforeach()
+add_dependencies(check-llvm-toolchain check-picolibc)
+add_dependencies(check-llvm-toolchain check-compiler-rt)
+add_subdirectory(test)
+add_dependencies(check-llvm-toolchain check-llvm-toolchain-lit)
+add_subdirectory(packagetest)
 
 if(LLVM_TOOLCHAIN_CROSS_BUILD_MINGW)
     find_program(MINGW_C_EXECUTABLE x86_64-w64-mingw32-gcc-posix REQUIRED)
@@ -828,15 +1229,14 @@ if(LLVM_TOOLCHAIN_CROSS_BUILD_MINGW)
         -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY
         -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
         -DCMAKE_SYSTEM_NAME=Windows
-        -DCLANG_TABLEGEN=${llvm_bin}/clang-tblgen
-        -DLLVM_CCACHE_BUILD=${LLVM_CCACHE_BUILD}
-        -DLLVM_CONFIG_PATH=${llvm_bin}/llvm-config
+        -DCLANG_TABLEGEN=${LLVM_BINARY_DIR}/bin/clang-tblgen${CMAKE_EXECUTABLE_SUFFIX}
+        -DLLVM_CMAKE_DIR=${LLVM_BINARY_DIR}/lib/cmake/llvm
         -DLLVM_DISTRIBUTION_COMPONENTS=${LLVM_DISTRIBUTION_COMPONENTS_comma}
         -DLLVM_ENABLE_PROJECTS=${LLVM_ENABLE_PROJECTS_comma}
-        -DLLVM_TABLEGEN=${llvm_bin}/llvm-tblgen
+        -DLLVM_TABLEGEN=${LLVM_BINARY_DIR}/bin/llvm-tblgen${CMAKE_EXECUTABLE_SUFFIX}
         -DLLVM_TARGETS_TO_BUILD=${LLVM_TARGETS_TO_BUILD_comma}
         BUILD_COMMAND "" # Let the install command build whatever it needs
-        INSTALL_COMMAND "${CMAKE_COMMAND}" --build <BINARY_DIR> --target install-distribution-stripped
+        INSTALL_COMMAND "${CMAKE_COMMAND}" --build <BINARY_DIR> --target install-distribution
         USES_TERMINAL_CONFIGURE TRUE
         USES_TERMINAL_BUILD TRUE
         USES_TERMINAL_INSTALL TRUE
@@ -861,14 +1261,14 @@ if(LLVM_TOOLCHAIN_CROSS_BUILD_MINGW)
     install(
         DIRECTORY ${INSTALL_DIR}/
         DESTINATION .
-        COMPONENT llvm-toolchain
+        COMPONENT llvm-toolchain-mingw
     )
 
     # Copy MinGW licenses
     install(
         DIRECTORY mingw-licenses/
         DESTINATION third-party-licenses
-        COMPONENT llvm-toolchain
+        COMPONENT llvm-toolchain-third-party-licenses
     )
 
     # Copy MinGW runtime DLLs
@@ -886,7 +1286,7 @@ if(LLVM_TOOLCHAIN_CROSS_BUILD_MINGW)
         install(
             FILES ${mingw_runtime_dll}
             TYPE BIN
-            COMPONENT llvm-toolchain
+            COMPONENT llvm-toolchain-mingw
         )
     endforeach()
 

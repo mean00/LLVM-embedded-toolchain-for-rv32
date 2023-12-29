@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2020, Arm Limited and affiliates.
+# Copyright (c) 2020-2023, Arm Limited and affiliates.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,16 +20,16 @@ include ../../Makefile.conf
 build: hello.elf
 
 hello.elf: *.c
-	$(BIN_PATH)/clang --config armv6m_soft_nofp.cfg -g -T ../../ldscripts/microbit.ld -o hello.elf $^
+	$(BIN_PATH)/clang $(MICROBIT_TARGET) $(CRT) -g -T ../../ldscripts/microbit.ld -o hello.elf $^
 
 %.hex: %.elf
 	$(BIN_PATH)/llvm-objcopy -O ihex $< $@
 
 run: hello.hex
-	qemu-system-arm -M microbit -semihosting -nographic -device loader,file=$<
+	qemu-system-arm -M microbit -nographic -device loader,file=$<
 
 debug: hello.hex
-	qemu-system-arm -M microbit -semihosting -nographic -device loader,file=$< -s -S
+	qemu-system-arm -M microbit -nographic -device loader,file=$< -s -S
 
 clean:
 	rm -f *.elf *.hex

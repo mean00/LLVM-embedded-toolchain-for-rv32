@@ -1,4 +1,4 @@
-@REM Copyright (c) 2021, Arm Limited and affiliates.
+@REM Copyright (c) 2021-2023, Arm Limited and affiliates.
 @REM SPDX-License-Identifier: Apache-2.0
 @REM
 @REM Licensed under the Apache License, Version 2.0 (the "License");
@@ -36,7 +36,7 @@
 @if [%BIN_PATH%]==[] goto :bin_path_empty
 @call :build_fn
 :do_run
-qemu-system-arm.exe -M microbit -semihosting -nographic -device loader,file=hello.hex
+qemu-system-arm.exe -M microbit -nographic -device loader,file=hello.hex
 @exit /B
 
 :clean
@@ -49,6 +49,6 @@ if exist hello.hex del /q hello.hex
 @exit /B 1
 
 :build_fn
-%BIN_PATH%\clang.exe --config armv6m_soft_nofp.cfg -g -T ..\..\ldscripts\microbit.ld -o hello.elf hello.c
+%BIN_PATH%\clang.exe --target=armv6m-none-eabi -mfloat-abi=soft -march=armv6m -mfpu=none -lcrt0 -g -T ..\..\ldscripts\microbit.ld -o hello.elf hello.c
 %BIN_PATH%\llvm-objcopy.exe -O ihex hello.elf hello.hex
 @exit /B

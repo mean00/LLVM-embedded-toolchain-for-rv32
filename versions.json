@@ -8,12 +8,12 @@
   "repos": {
     "llvm-project": {
       "comment": "tagType can be branch, tag or commithash",
-      "tagType": "branch",
-      "tag": "main"
+      "tagType": "tag",
+      "tag": "llvmorg-17.0.1"
     },
     "picolibc": {
-      "tagType": "branch",
-      "tag": "main"
+      "tagType": "commithash",
+      "tag": "6824f76769a29af27719954898b5210e070b2b5c"
     }
   }
 }
