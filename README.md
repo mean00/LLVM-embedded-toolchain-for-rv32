@@ -1,9 +1,12 @@
 # LLVM Embedded Toolchain for Rv32
 
 This is a derivative of the very nice project from ARM.
-It build the riscv32 imac and imafc toolchain.
-Usage :
-- mkdir build && cd build && cmake .. && make  package-llvm-toolchain
+
+It build the riscv32 imac and imafc clang+picolibc toolchain.
+Usage : 
+
+mkdir build && cd build && cmake .. && make  package-llvm-toolchain
+
 Clang+picolibc version 19.1.1
 
 # LLVM Embedded Toolchain for Arm
