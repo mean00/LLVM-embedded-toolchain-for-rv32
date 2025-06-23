@@ -110,7 +110,7 @@
 # CONFIGURE_HANDLED_BY_BUILD was introduced in CMake 3.20 and it
 # greatly speeds up incremental builds.
 cmake_minimum_required(VERSION 3.20)
-set(USE_LOCAL_COPY True CACHE INTERNAL "")
+set(USE_LOCAL_COPY False CACHE INTERNAL "")
 option(
     LLVM_TOOLCHAIN_CROSS_BUILD_MINGW
     "Cross-build for Windows. Using this option implies that you accept the GCC & MinGW licenses."

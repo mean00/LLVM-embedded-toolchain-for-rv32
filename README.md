@@ -1,3 +1,20 @@
+# LLVM Embedded Toolchain for Rv32
+
+This is a derivative of the very nice project from ARM.
+
+It hardwires the build system to build  riscv32 imc, imac and imafc clang+picolibc toolchain.
+The abi names are derived from what espressif does (i.e. zcsri/zfencei)
+
+Usage : 
+
+```
+   mkdir build && cd build && cmake .. && make  package-llvm-toolchain
+```
+You'll end up with a tar.xz archive containing Clang+picolibc version 19.1.5.
+
+It is a very quick hack
+
+
 # LLVM Embedded Toolchain for Arm
 
 This repository contains build scripts and auxiliary material for building a
