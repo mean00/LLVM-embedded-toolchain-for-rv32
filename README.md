@@ -1,24 +1,43 @@
 # LLVM Embedded Toolchain for Rv32
 
-This is a derivative of the very nice project from ARM.
+## Goal
 
-It build the riscv32 imac and imafc clang+picolibc toolchain.
-Usage : 
+This is a derivative of the very nice project from ARM.  
+I mainly use it with WCH RiscV chips but it should work with others.
 
-mkdir build && cd build && cmake .. && make  package-llvm-toolchain
+## Version:
 
-Clang+picolibc version 19.1.1
+- picolibc 1.8.9-2
+- clang 21.1.8
+
+## Supported RV32
+
+It builds a clang+picolib toolchain for rv32-imac and rv32-imafc
+
+Contrarily to the upstream project, it pulls llvm and picolibc through git submodule
+
+## Building
+
+Dependencies:  
+`gcc, g++, make (or ninja), cmake, meson , patch`
+
+Usage :  
+`git submodule update &&  
+mkdir build && cd build && cmake .. && make package-llvm-toolchain`
+
+# ------------- Original README.md below ----------------
 
 # LLVM Embedded Toolchain for Arm
 
 This repository contains build scripts and auxiliary material for building a
 bare-metal LLVM based toolchain targeting Arm based on:
-* clang + llvm
-* lld
-* libc++abi
-* libc++
-* compiler-rt
-* picolibc, or optionally newlib or LLVM's libc
+
+- clang + llvm
+- lld
+- libc++abi
+- libc++
+- compiler-rt
+- picolibc, or optionally newlib or LLVM's libc
 
 ## Goal
 
@@ -47,7 +66,8 @@ embedded and realtime operating systems.
 
 C++ is partially supported with the use of libc++ and libc++abi from LLVM. Features
 that are not supported include:
- - Multithreading
+
+- Multithreading
 
 LLVM Embedded Toolchain for Arm uses the unstable libc++ ABI version. This ABI
 uses all the latest libc++ improvements and bugfixes, but may result in link
@@ -58,10 +78,10 @@ For more information see https://libcxx.llvm.org/DesignDocs/ABIVersioning.html.
 
 The LLVM Embedded Toolchain for Arm relies on the following upstream components
 
-Component  | Link
----------- | ------------------------------------
-LLVM       | https://github.com/llvm/llvm-project
-picolibc   | https://github.com/picolibc/picolibc
+| Component | Link                                 |
+| --------- | ------------------------------------ |
+| LLVM      | https://github.com/llvm/llvm-project |
+| picolibc  | https://github.com/picolibc/picolibc |
 
 ## License
 
@@ -94,22 +114,22 @@ Install appropriate latest supported Microsoft Visual C++ Redistributable packag
 
 ### Using the toolchain
 
-> *Note:* If you are using the toolchain in a shared environment with untrusted input,
+> _Note:_ If you are using the toolchain in a shared environment with untrusted input,
 > make sure it is sufficiently sandboxed.
 
 To use the toolchain, on the command line you need to provide the following options:
-* The target triple.
-* The FPU to use.
-* Disabling/enabling C++ exceptions and RTTI.
-* The C runtime library: either `crt0` or `crt0-semihost`.
-* The semihosting library, if using `crt0-semihost`.
-* A [linker script](
-  https://sourceware.org/binutils/docs/ld/Scripts.html) specified with `-T`.
+
+- The target triple.
+- The FPU to use.
+- Disabling/enabling C++ exceptions and RTTI.
+- The C runtime library: either `crt0` or `crt0-semihost`.
+- The semihosting library, if using `crt0-semihost`.
+- A [linker script](https://sourceware.org/binutils/docs/ld/Scripts.html) specified with `-T`.
   Default `picolibcpp.ld` and `picolibc.ld` scripts are provided and can be used
-  directly or included from a [custom linker script](
-  https://github.com/picolibc/picolibc/blob/main/doc/linking.md#using-picolibcld).
+  directly or included from a [custom linker script](https://github.com/picolibc/picolibc/blob/main/doc/linking.md#using-picolibcld).
 
 For example:
+
 ```
 $ PATH=<install-dir>/LLVMEmbeddedToolchainForArm-<revision>/bin:$PATH
 $ clang \
@@ -154,7 +174,6 @@ $ clang \
 The FPU selection can be skipped, but it is not recommended to as the defaults
 are different to GCC ones.
 
-
 The builds of the toolchain come packaged with two config files, Omax.cfg and OmaxLTO.cfg.
 When used, these config files enable several build optimisation flags to achieve highest performance on typical embedded benchmarks. OmaxLTO.cfg enables link-time optimisation (LTO) specific flags.
 These configs can be optionally passed using the `--config` flag. For example:
@@ -169,7 +188,7 @@ example.c \
 ```
 
 Users should be warned that Omax.cfg enables `-ffast-math` which breaks IEEE compliance and
-enables maths optimisations which can affect code correctness.  LTOs are
+enables maths optimisations which can affect code correctness. LTOs are
 kept separately in OmaxLTO.cfg as users may not want LTOs due to potential increase in link time
 and/or increased memory usage during linking. Some of the options in the config files are undocumented internal LLVM options. For these undocumented options please see the source code of the
 corresponding optimisation passes in the [LLVM project](https://github.com/llvm/llvm-project)
@@ -186,7 +205,7 @@ and [Experimental newlib support](https://github.com/ARM-software/LLVM-embedded-
 for advice on using LLVM Embedded Toolchain for Arm with existing projects
 relying on the Arm GNU Toolchain.
 
-> *Note:* `picolibc` provides excellent
+> _Note:_ `picolibc` provides excellent
 > [support for Arm GNU Toolchain](https://github.com/picolibc/picolibc/blob/main/doc/using.md),
 > so projects that require using both Arm GNU Toolchain and LLVM Embedded Toolchain for Arm
 > can choose either `picolibc` or `newlib`.

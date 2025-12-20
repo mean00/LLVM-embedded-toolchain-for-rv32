@@ -135,6 +135,14 @@ option(
     ON
 )
 
+set(FETCHCONTENT_SOURCE_DIR_LLVMPROJECT ${CMAKE_SOURCE_DIR}/deps/llvm CACHE INTERNAL "")
+set(FETCHCONTENT_SOURCE_DIR_PICOLIBC ${CMAKE_SOURCE_DIR}/deps/picolibc CACHE INTERNAL "")
+set(llvmproject_SOURCE_DIR ${CMAKE_SOURCE_DIR}/deps/llvm CACHE INTERNAL "")
+set(picolibc_SOURCE_DIR ${CMAKE_SOURCE_DIR}/deps/picolibc CACHE INTERNAL "")
+
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
+include(patch_if_needed)
+
 set(LLVM_TOOLCHAIN_C_LIBRARY
     "picolibc" CACHE STRING
     "Which C library to use."
@@ -300,8 +308,13 @@ FetchContent_Declare(llvmproject
     # can't be used.
     SOURCE_SUBDIR do_not_add_llvm_subdir_yet
 )
-
-FetchContent_Declare(picolibc
+macro(xFetchContent_Declare one)
+  message(STATUS "fake declare..")
+endmacro()
+macro(xFetchContent_MakeAvailable one)
+  message(STATUS "fake make available..")
+endmacro()
+xFetchContent_Declare(picolibc
     GIT_REPOSITORY https://github.com/picolibc/picolibc.git
     GIT_TAG "${picolibc_TAG}"
     GIT_SHALLOW "${picolibc_SHALLOW}"
@@ -313,7 +326,7 @@ FetchContent_Declare(picolibc
     SOURCE_SUBDIR do_not_add_picolibc_subdir
 )
 
-FetchContent_Declare(newlib
+xFetchContent_Declare(newlib
     GIT_REPOSITORY https://sourceware.org/git/newlib-cygwin.git
     GIT_TAG "${newlib_TAG}"
     GIT_SHALLOW "${newlib_SHALLOW}"
@@ -323,9 +336,9 @@ FetchContent_Declare(newlib
     SOURCE_SUBDIR do_not_add_newlib_subdir
 )
 
-FetchContent_MakeAvailable(llvmproject)
+xFetchContent_MakeAvailable(llvmproject)
 if(NOT (LLVM_TOOLCHAIN_C_LIBRARY STREQUAL llvmlibc)) # libc in a separate repo?
-  FetchContent_MakeAvailable(${LLVM_TOOLCHAIN_C_LIBRARY})
+  xFetchContent_MakeAvailable(${LLVM_TOOLCHAIN_C_LIBRARY})
 endif()
 
 # We generally want to install to a local directory to see what the
@@ -519,6 +532,7 @@ list(APPEND CMAKE_MODULE_PATH ${llvmproject_SOURCE_DIR}/llvm/cmake/modules)
 llvm_install_symlink(LLVM llvm-ranlib llvm-ar ALWAYS_GENERATE)
 llvm_install_symlink(LLVM llvm-readelf llvm-readobj ALWAYS_GENERATE)
 llvm_install_symlink(LLVM llvm-strip llvm-objcopy ALWAYS_GENERATE)
+
 
 if(LLVM_TOOLCHAIN_C_LIBRARY STREQUAL picolibc)
   # For building picolibc use Meson.
@@ -1935,10 +1949,10 @@ add_custom_command(
   COMMAND ${CMAKE_COMMAND} -E copy
     ${CMAKE_CURRENT_BINARY_DIR}/multilib-without-fpus.yaml
     ${CMAKE_CURRENT_BINARY_DIR}/llvm/${TARGET_LIBRARIES_DIR}${library_subdir}/multilib.yaml
-  COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/multilib-fpus.py"
-    "--clang=${LLVM_BINARY_DIR}/bin/clang${CMAKE_EXECUTABLE_SUFFIX}"
-    "--llvm-source=${llvmproject_SOURCE_DIR}"
-    >> "${CMAKE_CURRENT_BINARY_DIR}/llvm/${TARGET_LIBRARIES_DIR}${library_subdir}/multilib.yaml"
+  #COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/multilib-fpus.py"
+    #"--clang=${LLVM_BINARY_DIR}/bin/clang${CMAKE_EXECUTABLE_SUFFIX}"
+    #"--llvm-source=${llvmproject_SOURCE_DIR}"
+    #>> "${CMAKE_CURRENT_BINARY_DIR}/llvm/${TARGET_LIBRARIES_DIR}${library_subdir}/multilib.yaml"
   DEPENDS ${multilib_yaml_depends}
 )
 add_custom_target(multilib_yaml ALL DEPENDS
