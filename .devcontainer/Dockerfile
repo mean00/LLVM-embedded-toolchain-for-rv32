@@ -13,21 +13,25 @@ RUN : \
     apt-utils \
     build-essential \
     bzip2 \
+    cmake \
     ccache \
     perl \
     check \
     curl \
     git \
     git-lfs \
+    libxml2-dev \
     make \
+    meson \
     ninja-build \
+    patch \
     python3 \
     sudo \
     unzip \
     wget \
     xz-utils \
     zip \
-    make cmake ninja-build usbutils meson\
+     \
   && apt-get autoremove -y \
   && rm -rf /var/lib/apt/lists/* \
   && update-alternatives --install /usr/bin/python python /usr/bin/python3 10 \
